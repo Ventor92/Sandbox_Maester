@@ -46,6 +46,8 @@ class DiceRollerApp(App):
 
     BINDINGS = [
         Binding("ctrl+c", "quit", "Quit", show=True),
+        Binding("up", "history_prev", "Previous", show=False),
+        Binding("down", "history_next", "Next", show=False),
     ]
 
     def __init__(self, server_url: str, room_id: str, player_name: str):
@@ -57,6 +59,10 @@ class DiceRollerApp(App):
         self.connected = False
         self.local_player_id = None
         self.game_service = LocalGameService()  # Local state management
+        
+        # Command history
+        self.command_history: list[str] = []
+        self.history_index: int = -1
 
     def compose(self) -> ComposeResult:
         """Create the TUI layout."""
@@ -106,6 +112,10 @@ class DiceRollerApp(App):
             log_view.write("[dim]Commands:[/dim]")
             log_view.write("[dim]/r d20 - Roll a d20[/dim]")
             log_view.write("[dim]/r 2d6+1 attack goblin - Roll 2d6+1 with intent[/dim]")
+            log_view.write("")
+            log_view.write("[dim]Shortcuts:[/dim]")
+            log_view.write("[dim]UP/DOWN - Navigate command history[/dim]")
+            log_view.write("[dim]CTRL+C - Quit[/dim]")
         else:
             self.connected = False
             status.update("[red]Connection failed[/red]")
@@ -133,6 +143,10 @@ class DiceRollerApp(App):
             log_view.write("[red]Invalid command. Use /r d20 [intent][/red]")
             input_field.clear()
             return
+
+        # Add to history
+        self.command_history.append(text)
+        self.history_index = -1  # Reset to current (not in history)
 
         # Generate roll locally and send event to server
         roll_event = self.game_service.roll_dice(self.room_id, self.local_player_id, expr, intent)
@@ -169,6 +183,41 @@ class DiceRollerApp(App):
         elif msg_type == "error":
             error_msg = message.get("message", "Unknown error")
             log_view.write(f"[red][ERROR] {error_msg}[/red]")
+
+    def action_history_prev(self) -> None:
+        """Navigate to previous command in history (UP arrow)."""
+        if not self.command_history:
+            return
+        
+        input_field = self.query_one("#input-field", Input)
+        
+        # Move to previous
+        if self.history_index < len(self.command_history) - 1:
+            self.history_index += 1
+            cmd = self.command_history[-(self.history_index + 1)]
+            input_field.value = cmd
+            # Move cursor to end
+            input_field.cursor_position = len(cmd)
+
+    def action_history_next(self) -> None:
+        """Navigate to next command in history (DOWN arrow)."""
+        if not self.command_history or self.history_index <= 0:
+            # Clear input
+            input_field = self.query_one("#input-field", Input)
+            input_field.value = ""
+            self.history_index = -1
+            return
+        
+        input_field = self.query_one("#input-field", Input)
+        
+        # Move to next (towards current)
+        self.history_index -= 1
+        if self.history_index >= 0:
+            cmd = self.command_history[-(self.history_index + 1)]
+            input_field.value = cmd
+            input_field.cursor_position = len(cmd)
+        else:
+            input_field.value = ""
 
     async def action_quit(self) -> None:
         """Quit the application."""
