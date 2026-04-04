@@ -86,6 +86,14 @@ class WebSocketHandler:
         # Cache events (for late-joiners)
         if msg_type == "event":
             event_data = message.get("event", {})
+            
+            # Extract event details for logging
+            player_name = event_data.get("player_name", "Unknown")
+            event_type = event_data.get("type", "unknown")
+            total = event_data.get("total", 0)
+            dice_expr = event_data.get("dice_expr", "")
+            intent = event_data.get("intent", "")
+            
             if room_id not in self.event_cache:
                 self.event_cache[room_id] = []
             
@@ -93,6 +101,12 @@ class WebSocketHandler:
             self.event_cache[room_id].append(event_data)
             if len(self.event_cache[room_id]) > 100:
                 self.event_cache[room_id] = self.event_cache[room_id][-100:]
+            
+            # Log the event with details
+            log_msg = f"[RELAY] {player_name} rolled {dice_expr} → {total}"
+            if intent:
+                log_msg += f" ({intent})"
+            logger.info(log_msg)
 
         # Broadcast to all clients in room
         await self.room_manager.broadcast(room_id, message)
