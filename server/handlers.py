@@ -60,6 +60,13 @@ class WebSocketHandler:
             self.room_manager.connections.setdefault(room_id, {})[client_id] = websocket
             logger.info(f"Player {player_name} joined room {room_id}")
 
+            # Send JOIN confirmation
+            await websocket.send_json({
+                "type": "player_joined",
+                "player_name": player_name,
+                "client_id": client_id
+            })
+
             # Send recent events to the client
             recent_events = self.game_service.get_recent_events(room_id, n=50)
             for event in recent_events:

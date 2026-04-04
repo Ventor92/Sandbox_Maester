@@ -21,7 +21,18 @@ class DiceRollerClient:
     async def connect(self, room_id: str, player_name: str) -> bool:
         """Connect to the server and join a room."""
         try:
-            url = f"{self.server_url}/ws/{room_id}"
+            # Determine protocol based on server URL
+            if self.server_url.startswith("http://"):
+                protocol = "ws://"
+                clean_url = self.server_url.replace("http://", "")
+            elif self.server_url.startswith("https://"):
+                protocol = "wss://"
+                clean_url = self.server_url.replace("https://", "")
+            else:
+                # Default to wss:// for Railway (no protocol specified)
+                protocol = "wss://"
+                clean_url = self.server_url
+            url = f"{protocol}{clean_url}/ws/{room_id}"
             self.websocket = await websockets.connect(url)
 
             # Send JOIN message
