@@ -75,6 +75,18 @@ class DiceRollerClient:
         except Exception as e:
             logger.error(f"Send error: {e}")
 
+    async def send_event(self, event_dict: dict) -> None:
+        """Send an event to the server relay."""
+        if not self.connected or not self.websocket:
+            logger.error("Not connected")
+            return
+
+        try:
+            msg = {"type": "event", "event": event_dict}
+            await self.websocket.send(json.dumps(msg))
+        except Exception as e:
+            logger.error(f"Send error: {e}")
+
     async def disconnect(self) -> None:
         """Disconnect from the server."""
         self.connected = False

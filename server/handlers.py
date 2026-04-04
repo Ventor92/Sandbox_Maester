@@ -1,33 +1,33 @@
-"""WebSocket handlers for dice roller events."""
+"""WebSocket handlers - Relay only, no game logic."""
 
 import json
 import logging
 from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
-from domain.service import GameService
 from server.room_manager import RoomManager
 
 logger = logging.getLogger(__name__)
 
 
 class WebSocketHandler:
-    """Handles WebSocket connections and messages."""
+    """Handles WebSocket connections - Relay & Cache only."""
 
-    def __init__(self, room_manager: RoomManager, game_service: GameService):
+    def __init__(self, room_manager: RoomManager):
         self.room_manager = room_manager
-        self.game_service = game_service
+        # Event cache: room_id → list of last N events
+        self.event_cache = {}
 
     async def handle_connection(
         self, room_id: str, websocket: WebSocket
     ) -> None:
-        """Handle a new WebSocket connection."""
+        """Handle a new WebSocket connection - relay and cache events."""
         client_id = None
-
+        
         try:
-            # Accept the connection first
+            # Accept the connection
             await websocket.accept()
 
-            # Wait for JOIN message
+            # Get JOIN message (client identifies itself)
             message = await websocket.receive_json()
 
             if message.get("type") != "join":
@@ -45,20 +45,17 @@ class WebSocketHandler:
                 await websocket.close()
                 return
 
-            # Register player
-            player = self.game_service.register_player(room_id, player_name)
-            if not player:
-                await websocket.send_json(
-                    {"type": "error", "message": "Failed to register player"}
-                )
-                await websocket.close()
-                return
+            # Register client (generate ID)
+            client_id = self.room_manager.register_client(room_id, websocket)
+            logger.info(f"Player '{player_name}' joined room {room_id} (client: {client_id})")
 
-            client_id = player.client_id
+            # Send cached events to new client (event history)
+            cached_events = self.event_cache.get(room_id, [])
+            for event_data in cached_events:
+                await websocket.send_json({"type": "event", "event": event_data})
 
-            # Register in connection manager (already accepted)
-            self.room_manager.connections.setdefault(room_id, {})[client_id] = websocket
-            logger.info(f"Player {player_name} joined room {room_id}")
+            if cached_events:
+                logger.info(f"Sent {len(cached_events)} cached events to client {client_id}")
 
             # Send JOIN confirmation
             await websocket.send_json({
@@ -67,61 +64,36 @@ class WebSocketHandler:
                 "client_id": client_id
             })
 
-            # Send recent events to the client
-            recent_events = self.game_service.get_recent_events(room_id, n=50)
-            for event in recent_events:
-                await websocket.send_json({"type": "event", "event": event.to_dict()})
-
-            # Handle incoming messages
+            # Relay loop: receive from this client, broadcast to all in room
             while True:
                 message = await websocket.receive_json()
-                await self._handle_message(room_id, client_id, message)
+                await self._relay_message(room_id, client_id, message)
 
         except WebSocketDisconnect:
             logger.info(f"Client {client_id} disconnected from room {room_id}")
             if client_id:
                 self.room_manager.disconnect(room_id, client_id)
-                self.game_service.remove_player(room_id, client_id)
         except Exception as e:
             logger.error(f"WebSocket error: {e}")
             if client_id:
                 self.room_manager.disconnect(room_id, client_id)
             raise
 
-    async def _handle_message(self, room_id: str, client_id: str, message: dict[str, Any]) -> None:
-        """Process a WebSocket message."""
+    async def _relay_message(self, room_id: str, sender_id: str, message: dict[str, Any]) -> None:
+        """Relay a message from client to all clients in room, cache if event."""
         msg_type = message.get("type")
 
-        if msg_type == "roll":
-            await self._handle_roll(room_id, client_id, message)
-        else:
-            logger.warning(f"Unknown message type: {msg_type}")
+        # Cache events (for late-joiners)
+        if msg_type == "event":
+            event_data = message.get("event", {})
+            if room_id not in self.event_cache:
+                self.event_cache[room_id] = []
+            
+            # Keep last 100 events per room
+            self.event_cache[room_id].append(event_data)
+            if len(self.event_cache[room_id]) > 100:
+                self.event_cache[room_id] = self.event_cache[room_id][-100:]
 
-    async def _handle_roll(self, room_id: str, client_id: str, message: dict[str, Any]) -> None:
-        """Handle a dice roll request."""
-        expr = message.get("expr", "").strip()
-        intent = message.get("intent", "").strip()
-
-        if not expr:
-            await self.room_manager.send_to_client(
-                room_id,
-                client_id,
-                {"type": "error", "message": "Dice expression is required"},
-            )
-            return
-
-        # Roll on server
-        event = self.game_service.roll_dice(room_id, client_id, expr, intent)
-
-        if not event:
-            await self.room_manager.send_to_client(
-                room_id,
-                client_id,
-                {"type": "error", "message": "Invalid dice expression"},
-            )
-            return
-
-        # Broadcast to all clients
-        await self.room_manager.broadcast(
-            room_id, {"type": "event", "event": event.to_dict()}
-        )
+        # Broadcast to all clients in room
+        await self.room_manager.broadcast(room_id, message)
+        logger.debug(f"Relayed {msg_type} from {sender_id} in room {room_id}")

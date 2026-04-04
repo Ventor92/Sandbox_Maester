@@ -22,7 +22,7 @@ async def test_websocket(server_url: str, room_id: str = "test-room"):
             clean_url = server_url
         url = f"{protocol}{clean_url}/ws/{room_id}"
         
-        print(f"📡 Connecting to: {url}")
+        print(f"[*] Connecting to: {url}")
         
         async with websockets.connect(url) as ws:
             print("✅ WebSocket connected!")

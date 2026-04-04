@@ -1,4 +1,4 @@
-"""Textual TUI application for dice roller client."""
+"""Textual TUI application for dice roller client - with local state management."""
 
 import asyncio
 import logging
@@ -13,6 +13,7 @@ from textual.app import App
 from client.ws_client import DiceRollerClient
 from client.parser import CommandParser
 from client.renderer import EventRenderer
+from client.service import LocalGameService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -54,6 +55,8 @@ class DiceRollerApp(App):
         self.player_name = player_name
         self.client = None
         self.connected = False
+        self.local_player_id = None
+        self.game_service = LocalGameService()  # Local state management
 
     def compose(self) -> ComposeResult:
         """Create the TUI layout."""
@@ -92,6 +95,14 @@ class DiceRollerApp(App):
             status.update("[green]Connected[/green]")
             log_view.write("[green]Connected to server[/green]")
             log_view.write("")
+            
+            # Register local player
+            player = self.game_service.register_player(self.room_id, self.player_name)
+            if player:
+                self.local_player_id = player.client_id
+                self.game_service.set_local_player(player.client_id)
+                logger.info(f"Local player registered: {player.client_id}")
+            
             log_view.write("[dim]Commands:[/dim]")
             log_view.write("[dim]/r d20 - Roll a d20[/dim]")
             log_view.write("[dim]/r 2d6+1 attack goblin - Roll 2d6+1 with intent[/dim]")
@@ -104,7 +115,7 @@ class DiceRollerApp(App):
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission."""
-        if not self.connected:
+        if not self.connected or not self.local_player_id:
             return
 
         text = event.value
@@ -123,8 +134,17 @@ class DiceRollerApp(App):
             input_field.clear()
             return
 
-        # Send roll request
-        asyncio.create_task(self.client.roll(expr, intent))
+        # Generate roll locally and send event to server
+        roll_event = self.game_service.roll_dice(self.room_id, self.local_player_id, expr, intent)
+        
+        if roll_event:
+            # Send event to server relay
+            asyncio.create_task(self.client.send_event(roll_event.to_dict()))
+            # Display locally
+            rendered = EventRenderer.render_event(roll_event.to_dict())
+            log_view.write(rendered)
+        else:
+            log_view.write("[red]Invalid dice expression[/red]")
 
         input_field.clear()
 
@@ -135,9 +155,16 @@ class DiceRollerApp(App):
         msg_type = message.get("type")
 
         if msg_type == "event":
-            event = message.get("event", {})
-            rendered = EventRenderer.render_event(event)
+            event_dict = message.get("event", {})
+            # Process in local service (updates local state)
+            self.game_service.process_event(self.room_id, event_dict)
+            # Display
+            rendered = EventRenderer.render_event(event_dict)
             log_view.write(rendered)
+
+        elif msg_type == "player_joined":
+            player_name = message.get("player_name", "Unknown")
+            log_view.write(f"[blue]{player_name} joined the game[/blue]")
 
         elif msg_type == "error":
             error_msg = message.get("message", "Unknown error")

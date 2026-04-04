@@ -1,17 +1,16 @@
-"""FastAPI application setup."""
+"""FastAPI application setup - Relay Server."""
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 
-from domain.service import GameService
 from server.room_manager import RoomManager
 from server.handlers import WebSocketHandler
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="ttRPG Dice Roller", version="0.1.0")
+app = FastAPI(title="ttRPG Dice Roller - Relay", version="0.2.0")
 
 # Add CORS middleware
 app.add_middleware(
@@ -22,10 +21,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize services
-game_service = GameService()
+# Initialize services (relay only - no game logic on server)
 room_manager = RoomManager()
-ws_handler = WebSocketHandler(room_manager, game_service)
+ws_handler = WebSocketHandler(room_manager)
 
 
 @app.get("/health")

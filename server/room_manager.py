@@ -12,6 +12,18 @@ class RoomManager:
     def __init__(self):
         # room_id -> {client_id -> WebSocket}
         self.connections: dict[str, dict[str, WebSocket]] = {}
+        self._next_client_id = 0
+
+    def register_client(self, room_id: str, websocket: WebSocket) -> str:
+        """Register a new client and return its ID."""
+        self._next_client_id += 1
+        client_id = f"client_{self._next_client_id}"
+        
+        if room_id not in self.connections:
+            self.connections[room_id] = {}
+        
+        self.connections[room_id][client_id] = websocket
+        return client_id
 
     async def connect(self, room_id: str, client_id: str, websocket: WebSocket) -> None:
         """Register a new WebSocket connection."""
