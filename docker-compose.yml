@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # Main server
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: dice-roller-server
+    ports:
+      - "8000:8000"
+    environment:
+      - LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - dice-network
+    restart: unless-stopped
+
+  # Client 1 - Alice
+  client-alice:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: dice-roller-alice
+    command: ["room-1", "Alice", "ws://server:8000"]
+    depends_on:
+      server:
+        condition: service_healthy
+    networks:
+      - dice-network
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
+  # Client 2 - Bob
+  client-bob:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: dice-roller-bob
+    command: ["room-1", "Bob", "ws://server:8000"]
+    depends_on:
+      server:
+        condition: service_healthy
+    networks:
+      - dice-network
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
+networks:
+  dice-network:
+    driver: bridge

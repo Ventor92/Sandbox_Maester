@@ -1,0 +1,19 @@
+# Client Dockerfile - headless (non-interactive)
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY domain/ ./domain/
+COPY client/ ./client/
+COPY shared/ ./shared/
+COPY . .
+
+# Client runs with arguments passed from docker-compose
+# Usage: python -m client.main <room_id> <player_name> <server_url>
+
+ENTRYPOINT ["python", "-m", "client.main"]

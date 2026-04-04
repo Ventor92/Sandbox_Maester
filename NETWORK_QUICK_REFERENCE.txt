@@ -1,0 +1,60 @@
+# Quick Network Reference
+
+## Połączenie Lokalne (Ten sam komputer)
+
+```bash
+Terminal 1: python -m server.main
+Terminal 2: python -m client.main room-1 Alice
+Terminal 3: python -m client.main room-1 Bob
+```
+
+## Połączenie Zdalne (Inny komputer w sieci)
+
+```bash
+# Krok 1: Znajdź IP serwera
+ipconfig          # Windows
+ifconfig          # Linux/Mac
+
+# Krok 2: Uruchom serwer
+python -m server.main
+
+# Krok 3: Z innego komputera
+python -m client.main room-1 Alice ws://192.168.1.16:8000
+```
+
+## Jeśli "Connection refused"
+
+1. ✓ Serwer działa? (`python -m server.main`)
+2. ✓ Port 8000 otwarty? (Firewall)
+3. ✓ IP poprawny? (Użyj `ipconfig`)
+4. ✓ Formatowanie? (`ws://192.168.x.x:8000`)
+
+## Otwieranie Portu (Windows)
+
+```powershell
+netsh advfirewall firewall add rule name="Dice Roller" dir=in action=allow protocol=tcp localport=8000
+```
+
+---
+
+| Metoda | Polecenie | Zakres |
+|--------|-----------|--------|
+| **Lokalnie** | `python -m client.main room-1 Alice` | Twój komputer |
+| **LAN** | `python -m client.main room-1 Alice ws://192.168.1.16:8000` | Sieć domowa |
+| **SSH Tunnel** | `ssh -L 8000:localhost:8000 user@host` | Internet |
+| **Port Forward** | Router ustawienia | Internet |
+
+## Server IP
+
+```bash
+# Windows
+ipconfig | findstr IPv4
+
+# Linux
+hostname -I
+
+# macOS  
+ifconfig | grep inet
+```
+
+Szukaj adresu jak **192.168.x.x** lub **10.x.x.x** (sieć lokalna)
