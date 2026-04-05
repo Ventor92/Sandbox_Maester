@@ -15,7 +15,10 @@ class RoomManager:
         self._next_client_id = 0
 
     def register_client(self, room_id: str, websocket: WebSocket) -> str:
-        """Register a new client and return its ID."""
+        """Register a new client and return its ID.
+        
+        Note: websocket MUST be already accepted before calling this.
+        """
         self._next_client_id += 1
         client_id = f"client_{self._next_client_id}"
         
@@ -24,15 +27,6 @@ class RoomManager:
         
         self.connections[room_id][client_id] = websocket
         return client_id
-
-    async def connect(self, room_id: str, client_id: str, websocket: WebSocket) -> None:
-        """Register a new WebSocket connection."""
-        await websocket.accept()
-
-        if room_id not in self.connections:
-            self.connections[room_id] = {}
-
-        self.connections[room_id][client_id] = websocket
 
     def disconnect(self, room_id: str, client_id: str) -> None:
         """Unregister a WebSocket connection."""
@@ -52,6 +46,8 @@ class RoomManager:
             try:
                 await websocket.send_json(message)
             except Exception as e:
+                import logging
+                logging.debug(f"Broadcast error to {client_id}: {e}")
                 disconnected.append(client_id)
 
         for client_id in disconnected:
