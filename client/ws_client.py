@@ -28,12 +28,18 @@ class DiceRollerClient:
             elif self.server_url.startswith("https://"):
                 protocol = "wss://"
                 clean_url = self.server_url.replace("https://", "")
+            elif self.server_url.startswith("ws://") or self.server_url.startswith("wss://"):
+                # Already has protocol
+                url = f"{self.server_url}/ws/{room_id}"
+                self.websocket = await websockets.connect(url)
             else:
-                # Default to wss:// for Railway (no protocol specified)
-                protocol = "wss://"
+                # Default to ws:// for localhost (not wss://)
+                protocol = "ws://"
                 clean_url = self.server_url
-            url = f"{protocol}{clean_url}/ws/{room_id}"
-            self.websocket = await websockets.connect(url)
+            
+            if not self.websocket:
+                url = f"{protocol}{clean_url}/ws/{room_id}"
+                self.websocket = await websockets.connect(url)
 
             # Send JOIN message
             join_msg = {"type": "join", "name": player_name}
@@ -77,6 +83,8 @@ class DiceRollerClient:
 
     async def send_event(self, event_dict: dict) -> None:
         """Send an event to the server relay."""
+        logger.error("Sending event to server relay")
+
         if not self.connected or not self.websocket:
             logger.error("Not connected")
             return

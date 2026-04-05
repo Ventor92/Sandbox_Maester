@@ -151,9 +151,9 @@ class DiceRollerApp(App):
         # Generate roll locally and send event to server
         roll_event = self.game_service.roll_dice(self.room_id, self.local_player_id, expr, intent)
         
-        if roll_event:
+        if roll_event and self.client:
             # Send event to server relay
-            asyncio.create_task(self.client.send_event(roll_event.to_dict()))
+            self.run_worker(self.client.send_event(roll_event.to_dict()))
             # Display locally
             rendered = EventRenderer.render_event(roll_event.to_dict())
             log_view.write(rendered)

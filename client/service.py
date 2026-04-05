@@ -1,9 +1,12 @@
 """Local game service for client-side state management."""
 
+import logging
 from domain.models import Player, Room
 from domain.events import RollEvent, Event
 from domain.log import EventLog
 from domain.dice import DiceParser
+
+logger = logging.getLogger(__name__)
 
 
 class LocalGameService:
@@ -74,28 +77,46 @@ class LocalGameService:
         """
         # Reconstruct event from dict
         if not isinstance(event_dict, dict):
+            logger.warning(f"Event is not a dict: {type(event_dict)}")
             return None
 
         event_type = event_dict.get("type")
         if event_type != "roll":
+            logger.debug(f"Skipping non-roll event type: {event_type}")
             return None
+
+        # Extract payload structure
+        payload = event_dict.get("payload", {})
+        player_info = payload.get("player", {})
+        dice_info = payload.get("dice", {})
+        fiction_info = payload.get("fiction", {})
+
+        player_id = player_info.get("id")
+        player_name = player_info.get("name", "Unknown")
+        
+        if not player_id:
+            logger.error(f"Missing player_id in event payload: {event_dict}")
+            return None
+
+        logger.debug(f"Processing roll event: {player_name} rolled {dice_info.get('expr')}")
 
         # Create event from dict
         event = RollEvent(
-            player_id=event_dict.get("player_id"),
-            player_name=event_dict.get("player_name"),
-            dice_expr=event_dict.get("dice_expr"),
-            rolls=event_dict.get("rolls", []),
-            modifier=event_dict.get("modifier", 0),
-            total=event_dict.get("total", 0),
-            intent=event_dict.get("intent", ""),
+            player_id=player_id,
+            player_name=player_name,
+            dice_expr=dice_info.get("expr", ""),
+            rolls=dice_info.get("rolls", []),
+            modifier=dice_info.get("modifier", 0),
+            total=dice_info.get("total", 0),
+            intent=fiction_info.get("intent", ""),
         )
 
         # Add to local log and register player if needed
         room = self.get_or_create_room(room_id)
-        if not room.get_player(event.player_id):
-            new_player = Player(client_id=event.player_id, name=event.player_name)
+        if not room.get_player(player_id):
+            new_player = Player(client_id=player_id, name=player_name)
             room.add_player(new_player)
+            logger.info(f"Registered new player: {player_name} ({player_id})")
 
         log = self._event_logs[room_id]
         log.append(event)

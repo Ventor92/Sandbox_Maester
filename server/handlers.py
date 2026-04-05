@@ -87,12 +87,17 @@ class WebSocketHandler:
         if msg_type == "event":
             event_data = message.get("event", {})
             
-            # Extract event details for logging
-            player_name = event_data.get("player_name", "Unknown")
+            # Extract event details for logging from nested payload structure
+            payload = event_data.get("payload", {})
+            player_info = payload.get("player", {})
+            dice_info = payload.get("dice", {})
+            fiction_info = payload.get("fiction", {})
+            
+            player_name = player_info.get("name", "Unknown")
             event_type = event_data.get("type", "unknown")
-            total = event_data.get("total", 0)
-            dice_expr = event_data.get("dice_expr", "")
-            intent = event_data.get("intent", "")
+            total = dice_info.get("total", 0)
+            dice_expr = dice_info.get("expr", "")
+            intent = fiction_info.get("intent", "")
             
             if room_id not in self.event_cache:
                 self.event_cache[room_id] = []
