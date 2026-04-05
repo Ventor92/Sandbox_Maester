@@ -17,15 +17,15 @@ class WebSocketHandler:
         # Event cache: room_id → list of last N events
         self.event_cache = {}
 
-     async def handle_connection(
-         self, room_id: str, websocket: WebSocket
-     ) -> None:
-         """Handle a new WebSocket connection - relay and cache events."""
-         client_id = None
-         
-         try:
-             # Accept the connection first (required by WebSocket protocol)
-             await websocket.accept()
+    async def handle_connection(
+        self, room_id: str, websocket: WebSocket
+    ) -> None:
+        """Handle a new WebSocket connection - relay and cache events."""
+        client_id = None
+        
+        try:
+            # Accept the connection first (required by WebSocket protocol)
+            await websocket.accept()
 
             # Get JOIN message (client identifies itself)
             message = await websocket.receive_json()
