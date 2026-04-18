@@ -11,12 +11,12 @@ Build a real-time tabletop RPG dice roller that supports multiplayer sessions. T
 ### Relay + Client State Model
 
 ```
-┌─────────────┐                  ┌──────────────┐
-│   Client    │◄─ WebSocket ─►   │   Server     │
-│  (TUI)      │  (relay only)     │  (relay)     │
-│  +State     │                   │  +cache      │
-│  +Logic     │                   │              │
-└─────────────┘                  └──────────────┘
+┌─────────────┐                 ┌──────────────┐
+│   Client    │ ◄─ WebSocket ─► │   Server     │
+│  (TUI)      │  (relay only)   │  (relay)     │
+│  +State     │                 │  +cache      │
+│  +Logic     │                 │              │
+└─────────────┘                 └──────────────┘
   └─ Local GameService            └─ Pure relay
     └─ Event log                     └─ Last 100 events per room
     └─ Dice rolls
@@ -113,6 +113,17 @@ Event payload structure:
 
 ## 🚀 Running the Application
 
+### Setup local virtual environment
+```bash
+py -3.13 -m venv venv
+```
+### Activate virtual environment
+- Windows: 
+```.\.venv\Scripts\activate```
+- macOS/Linux: 
+```source .venv/bin/activate```
+
+
 ### Prerequisites
 ```bash
 python -m pip install -r requirements.txt
@@ -131,7 +142,7 @@ python -m client.main <room_id> <player_name> [server_url]
 
 Examples:
 ```bash
-python -m client.main dungeon-01 Alice                                    # Local
+python -m client.main dungeon-01 Alice                                  # Local
 python -m client.main dungeon-01 Bob ws://192.168.1.16:8000             # LAN
 python -m client.main dungeon-01 Alice wss://sandboxmaester-prod.up...  # Remote
 ```

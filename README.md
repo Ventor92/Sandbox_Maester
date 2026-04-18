@@ -38,7 +38,7 @@ See **DOCKER_QUICK_START.md** for Docker commands.
 python -m server.main
 ```
 
-The server will start on `http://localhost:8000`. Check health at `http://localhost:8000/health`.
+The server will start on `http://localhost:8000`. Check health at `http://localhost:8000/health` and active rooms at `http://localhost:8000/rooms`.
 
 #### Terminal 2 & 3: Start Clients (Local)
 

@@ -1,8 +1,9 @@
 """FastAPI application setup - Relay Server."""
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+from pydantic import BaseModel
 
 from server.room_manager import RoomManager
 from server.handlers import WebSocketHandler
@@ -26,10 +27,30 @@ room_manager = RoomManager()
 ws_handler = WebSocketHandler(room_manager)
 
 
+class RoomSummary(BaseModel):
+    """Summary of an active room exposed via REST API."""
+
+    room_id: str
+    client_count: int
+
+
+class RoomListResponse(BaseModel):
+    """Response payload for the active room list endpoint."""
+
+    rooms: list[RoomSummary]
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "ok"}
+
+
+@app.get("/rooms", response_model=RoomListResponse)
+async def list_rooms():
+    """List active rooms that currently have connected clients."""
+    rooms = [RoomSummary(**room) for room in room_manager.list_active_rooms()]
+    return RoomListResponse(rooms=rooms)
 
 
 @app.websocket("/ws/{room_id}")

@@ -1,8 +1,5 @@
 """Room manager for handling WebSocket connections."""
 
-import json
-from typing import Callable
-from fastapi import WebSocketException
 from fastapi.websockets import WebSocket
 
 
@@ -74,3 +71,16 @@ class RoomManager:
     def get_client_count(self, room_id: str) -> int:
         """Get the number of connected clients in a room."""
         return len(self.connections.get(room_id, {}))
+
+    def list_active_rooms(self) -> list[dict[str, str | int]]:
+        """Return active rooms with the number of connected clients."""
+        rooms: list[dict[str, str | int]] = []
+
+        for room_id in sorted(self.connections):
+            client_count = len(self.connections[room_id])
+            if client_count > 0:
+                rooms.append(
+                    {"room_id": room_id, "client_count": client_count}
+                )
+
+        return rooms
