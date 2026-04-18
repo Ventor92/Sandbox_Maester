@@ -2,6 +2,8 @@
 
 import json
 import logging
+import time
+from uuid import uuid4
 from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 from server.room_manager import RoomManager
@@ -112,6 +114,32 @@ class WebSocketHandler:
             if intent:
                 log_msg += f" ({intent})"
             logger.info(log_msg)
+        elif msg_type == "custom_event":
+            # Custom events are relayed and cached (per updated decision)
+            event_data = message.get("event", {})
+
+            # Add server-side metadata for easier consumption by clients
+            meta = {
+                "server_assigned_id": str(uuid4()),
+                "timestamp": time.time(),
+                "sender_client_id": sender_id,
+            }
+            if isinstance(event_data.get("metadata"), dict):
+                event_data["metadata"].update(meta)
+            else:
+                event_data["metadata"] = meta
+
+            if room_id not in self.event_cache:
+                self.event_cache[room_id] = []
+
+            # Keep last 100 events per room (include custom events)
+            self.event_cache[room_id].append(event_data)
+            if len(self.event_cache[room_id]) > 100:
+                self.event_cache[room_id] = self.event_cache[room_id][-100:]
+
+            # Log the custom event
+            subtype = event_data.get("subtype", "custom")
+            logger.info(f"[RELAY-CUSTOM] {sender_id} -> {room_id} ({subtype})")
 
         # Broadcast to all clients in room
         await self.room_manager.broadcast(room_id, message)

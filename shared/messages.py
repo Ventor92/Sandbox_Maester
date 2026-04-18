@@ -32,5 +32,12 @@ class ErrorMessage(TypedDict):
     message: str
 
 
-ClientMessage = JoinMessage | RollMessage
-ServerMessage = EventMessage | ErrorMessage
+class CustomEventMessage(TypedDict):
+    """Client → Server and Server → Client: Custom event (e.g., table roll)."""
+
+    type: str  # "custom_event"
+    event: dict[str, Any]
+
+
+ClientMessage = JoinMessage | RollMessage | CustomEventMessage
+ServerMessage = EventMessage | ErrorMessage | CustomEventMessage
