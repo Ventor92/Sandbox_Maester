@@ -14,6 +14,7 @@ from client.ws_client import DiceRollerClient
 from client.parser import CommandParser
 from client.renderer import EventRenderer
 from client.service import LocalGameService
+from uuid import uuid4
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -112,6 +113,7 @@ class DiceRollerApp(App):
             log_view.write("[dim]Commands:[/dim]")
             log_view.write("[dim]/r d20 - Roll a d20[/dim]")
             log_view.write("[dim]/r 2d6+1 attack goblin - Roll 2d6+1 with intent[/dim]")
+            log_view.write("[dim]/custom table_roll <table_id> <choice> - Send local table roll as custom_event[/dim]")
             log_view.write("")
             log_view.write("[dim]Shortcuts:[/dim]")
             log_view.write("[dim]UP/DOWN - Navigate command history[/dim]")
@@ -128,39 +130,71 @@ class DiceRollerApp(App):
         if not self.connected or not self.local_player_id:
             return
 
-        text = event.value
+        text = event.value.strip()
         input_field = self.query_one("#input-field", Input)
         log_view = self.query_one("#log-view", RichLog)
 
-        if not CommandParser.is_roll_command(text):
-            log_view.write("[dim]Use /r <expr> [intent][/dim]")
+        # Roll command
+        if CommandParser.is_roll_command(text):
+            expr, intent = CommandParser.parse_roll_command(text)
+
+            if not expr:
+                log_view.write("[red]Invalid command. Use /r d20 [intent][/red]")
+                input_field.clear()
+                return
+
+            # Add to history
+            self.command_history.append(text)
+            self.history_index = -1  # Reset to current (not in history)
+
+            # Generate roll locally and send event to server
+            roll_event = self.game_service.roll_dice(self.room_id, self.local_player_id, expr, intent)
+            
+            if roll_event and self.client:
+                # Send event to server relay
+                self.run_worker(self.client.send_event(roll_event.to_dict()))
+                # Display locally
+                rendered = EventRenderer.render_event(roll_event.to_dict())
+                log_view.write(rendered)
+            else:
+                log_view.write("[red]Invalid dice expression[/red]")
+
             input_field.clear()
             return
 
-        expr, intent = CommandParser.parse_roll_command(text)
+        # Custom command
+        if CommandParser.is_custom_command(text):
+            subtype, payload = CommandParser.parse_custom_command(text)
+            if not subtype or payload is None:
+                log_view.write("[red]Invalid custom command. Use /custom <subtype> <args or JSON>[/red]")
+                input_field.clear()
+                return
 
-        if not expr:
-            log_view.write("[red]Invalid command. Use /r d20 [intent][/red]")
+            # Add to history
+            self.command_history.append(text)
+            self.history_index = -1
+
+            # Prepare metadata
+            client_generated_id = str(uuid4())
+            metadata = {"client_generated_id": client_generated_id}
+            if self.local_player_id:
+                metadata["sender_local_player_id"] = self.local_player_id
+
+            # Send custom event
+            if self.client:
+                self.run_worker(self.client.send_custom_event(subtype, payload, metadata))
+                # Optimistic display
+                event_for_display = {"type": "custom_event", "subtype": subtype, "payload": payload, "metadata": metadata}
+                rendered = EventRenderer.render_event(event_for_display)
+                log_view.write(rendered)
+
             input_field.clear()
             return
 
-        # Add to history
-        self.command_history.append(text)
-        self.history_index = -1  # Reset to current (not in history)
-
-        # Generate roll locally and send event to server
-        roll_event = self.game_service.roll_dice(self.room_id, self.local_player_id, expr, intent)
-        
-        if roll_event and self.client:
-            # Send event to server relay
-            self.run_worker(self.client.send_event(roll_event.to_dict()))
-            # Display locally
-            rendered = EventRenderer.render_event(roll_event.to_dict())
-            log_view.write(rendered)
-        else:
-            log_view.write("[red]Invalid dice expression[/red]")
-
+        # Fallback help
+        log_view.write("[dim]Use /r <expr> [intent] or /custom <subtype> <args|json>[/dim]")
         input_field.clear()
+        return
 
     def _on_server_message(self, message: dict[str, Any]) -> None:
         """Handle incoming server message."""
@@ -174,6 +208,15 @@ class DiceRollerApp(App):
             self.game_service.process_event(self.room_id, event_dict)
             # Display
             rendered = EventRenderer.render_event(event_dict)
+            log_view.write(rendered)
+
+        elif msg_type == "custom_event":
+            event_dict = message.get("event", {})
+            # Display custom events in magenta with subtype and payload summary
+            subtype = event_dict.get("subtype", "custom")
+            payload = event_dict.get("payload", {})
+            sender = event_dict.get("metadata", {}).get("sender_client_id") or event_dict.get("metadata", {}).get("sender_local_player_id")
+            rendered = f"[magenta]{subtype}: {payload} (from {sender})[/magenta]"
             log_view.write(rendered)
 
         elif msg_type == "player_joined":
