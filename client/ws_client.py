@@ -19,45 +19,25 @@ class DiceRollerClient:
         self.connected = False
 
     async def connect(self, room_id: str, player_name: str) -> bool:
-        """Connect to the server and join a room."""
+        """Connect to the server and join a room. Token must be provided via query param on the WS URL."""
         try:
-            # Determine protocol based on server URL
-            if self.server_url.startswith("http://"):
-                protocol = "ws://"
-                clean_url = self.server_url.replace("http://", "")
-            elif self.server_url.startswith("https://"):
-                protocol = "wss://"
-                clean_url = self.server_url.replace("https://", "")
-            elif self.server_url.startswith("ws://") or self.server_url.startswith("wss://"):
-                # Already has protocol
-                url = f"{self.server_url}/ws/{room_id}"
-                self.websocket = await websockets.connect(url)
+            # Determine base URL for token fetch (http/https)
+            if self.server_url.startswith("ws://"):
+                base = self.server_url.replace("ws://", "http://")
+            elif self.server_url.startswith("wss://"):
+                base = self.server_url.replace("wss://", "https://")
+            elif self.server_url.startswith("http://") or self.server_url.startswith("https://"):
+                base = self.server_url
             else:
-                # Default to ws:// for localhost (not wss://)
-                protocol = "ws://"
-                clean_url = self.server_url
-            
-            if not self.websocket:
-                url = f"{protocol}{clean_url}/ws/{room_id}"
-                self.websocket = await websockets.connect(url)
+                base = f"http://{self.server_url}"
 
-            # Fetch an auth token from the REST endpoint and include it in the JOIN
+            # Fetch an auth token from the REST endpoint
             try:
-                if self.server_url.startswith("ws://"):
-                    base = self.server_url.replace("ws://", "http://")
-                elif self.server_url.startswith("wss://"):
-                    base = self.server_url.replace("wss://", "https://")
-                elif self.server_url.startswith("http://") or self.server_url.startswith("https://"):
-                    base = self.server_url
-                else:
-                    base = f"http://{self.server_url}"
-
                 def _fetch_token():
                     from urllib.request import urlopen
                     import json as _json
                     with urlopen(f"{base}/auth/token?room_id={room_id}&name={player_name}", timeout=2) as resp:
                         return _json.loads(resp.read().decode("utf-8")).get("token")
-
                 token = await asyncio.get_event_loop().run_in_executor(None, _fetch_token)
                 if not token:
                     logger.error("Failed to obtain auth token from server")
@@ -66,12 +46,22 @@ class DiceRollerClient:
                 logger.error(f"Failed to fetch auth token: {e}")
                 return False
 
-            # Send JOIN message including token
-            join_msg = {"type": "join", "name": player_name, "token": token}
-            await self.websocket.send(json.dumps(join_msg))
+            # Build websocket URL with token in query params
+            if base.startswith("http://"):
+                ws_base = base.replace("http://", "ws://")
+            elif base.startswith("https://"):
+                ws_base = base.replace("https://", "wss://")
+            else:
+                ws_base = base
+            ws_url = f"{ws_base}/ws/{room_id}?token={token}"
 
+            self.websocket = await websockets.connect(ws_url)
             self.connected = True
-            logger.info(f"Connected to {url}")
+            logger.info(f"Connected to {ws_url}")
+
+            # Send JOIN message (token is provided via query param)
+            join_msg = {"type": "join", "name": player_name}
+            await self.websocket.send(json.dumps(join_msg))
 
             # Start listening for messages
             asyncio.create_task(self._listen())

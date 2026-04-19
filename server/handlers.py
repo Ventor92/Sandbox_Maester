@@ -33,12 +33,30 @@ class WebSocketHandler:
         client_id = None
         
         try:
-            # Accept the connection first (required by WebSocket protocol)
+            # Require token in query params and verify BEFORE accepting the WebSocket
+            query_token = websocket.query_params.get("token")
+            if not query_token:
+                # No token provided in query params — close connection (policy violation)
+                await websocket.close(code=1008)
+                return
+
+            try:
+                claims = verify_token(query_token)
+            except Exception:
+                # Invalid or expired token - close immediately
+                await websocket.close(code=1008)
+                return
+
+            # Ensure token allows joining this room
+            token_room = claims.get("room_id")
+            if token_room != room_id:
+                await websocket.close(code=1008)
+                return
+
+            # Accept the connection only after token validated
             await websocket.accept()
 
             # Get JOIN message (client identifies itself)
-            # Accept token either via query param or in the join message itself.
-            query_token = websocket.query_params.get("token")
             message = await websocket.receive_json()
 
             if message.get("type") != "join":
@@ -56,28 +74,8 @@ class WebSocketHandler:
                 await websocket.close()
                 return
 
-            # Extract token and verify
-            token = query_token or message.get("token")
-            if not token:
-                await websocket.send_json({"type": "error", "message": "Authentication token required"})
-                await websocket.close()
-                return
-
-            try:
-                claims = verify_token(token)
-            except Exception as e:
-                await websocket.send_json({"type": "error", "message": f"Invalid or expired token: {str(e)}"})
-                await websocket.close()
-                return
-
-            # Ensure token allows joining this room and matches player name
-            token_room = claims.get("room_id")
+            # Ensure token subject matches player name
             token_sub = claims.get("sub")
-            if token_room != room_id:
-                await websocket.send_json({"type": "error", "message": "Token not valid for this room"})
-                await websocket.close()
-                return
-
             if token_sub != player_name:
                 await websocket.send_json({"type": "error", "message": "Token subject does not match player name"})
                 await websocket.close()
