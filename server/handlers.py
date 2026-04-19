@@ -2,13 +2,20 @@
 
 import json
 import logging
+import os
 import time
 from uuid import uuid4
 from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
 from server.room_manager import RoomManager
+from server.auth import verify_token
+from server.schemas import EventModel, CustomEventModel, RollModel
 
 logger = logging.getLogger(__name__)
+
+# Maximum allowed message size (bytes)
+MAX_MESSAGE_SIZE = int(os.getenv("MAX_MESSAGE_SIZE", "10240"))
 
 
 class WebSocketHandler:
@@ -30,6 +37,8 @@ class WebSocketHandler:
             await websocket.accept()
 
             # Get JOIN message (client identifies itself)
+            # Accept token either via query param or in the join message itself.
+            query_token = websocket.query_params.get("token")
             message = await websocket.receive_json()
 
             if message.get("type") != "join":
@@ -44,6 +53,33 @@ class WebSocketHandler:
                 await websocket.send_json(
                     {"type": "error", "message": "Player name is required"}
                 )
+                await websocket.close()
+                return
+
+            # Extract token and verify
+            token = query_token or message.get("token")
+            if not token:
+                await websocket.send_json({"type": "error", "message": "Authentication token required"})
+                await websocket.close()
+                return
+
+            try:
+                claims = verify_token(token)
+            except Exception as e:
+                await websocket.send_json({"type": "error", "message": f"Invalid or expired token: {str(e)}"})
+                await websocket.close()
+                return
+
+            # Ensure token allows joining this room and matches player name
+            token_room = claims.get("room_id")
+            token_sub = claims.get("sub")
+            if token_room != room_id:
+                await websocket.send_json({"type": "error", "message": "Token not valid for this room"})
+                await websocket.close()
+                return
+
+            if token_sub != player_name:
+                await websocket.send_json({"type": "error", "message": "Token subject does not match player name"})
                 await websocket.close()
                 return
 
@@ -83,39 +119,65 @@ class WebSocketHandler:
 
     async def _relay_message(self, room_id: str, sender_id: str, message: dict[str, Any]) -> None:
         """Relay a message from client to all clients in room, cache if event."""
+        # Enforce maximum message size
+        try:
+            raw = json.dumps(message)
+        except Exception:
+            await self.room_manager.send_to_client(room_id, sender_id, {"type": "error", "message": "Invalid JSON message"})
+            return
+
+        if len(raw) > MAX_MESSAGE_SIZE:
+            await self.room_manager.send_to_client(room_id, sender_id, {"type": "error", "message": "Message too large"})
+            return
+
         msg_type = message.get("type")
+
+        # Validate message structure using pydantic models (whitelist)
+        try:
+            if msg_type == "event":
+                EventModel.parse_obj(message)
+            elif msg_type == "custom_event":
+                CustomEventModel.parse_obj(message)
+            elif msg_type == "roll":
+                RollModel.parse_obj(message)
+            else:
+                await self.room_manager.send_to_client(room_id, sender_id, {"type": "error", "message": f"Unsupported message type: {msg_type}"})
+                return
+        except ValidationError as ve:
+            await self.room_manager.send_to_client(room_id, sender_id, {"type": "error", "message": f"Invalid message: {ve}"})
+            return
 
         # Cache events (for late-joiners)
         if msg_type == "event":
             event_data = message.get("event", {})
-            
+
             # Extract event details for logging from nested payload structure
             payload = event_data.get("payload", {})
             player_info = payload.get("player", {})
             dice_info = payload.get("dice", {})
             fiction_info = payload.get("fiction", {})
-            
+
             player_name = player_info.get("name", "Unknown")
             event_type = event_data.get("type", "unknown")
             total = dice_info.get("total", 0)
             dice_expr = dice_info.get("expr", "")
             intent = fiction_info.get("intent", "")
-            
+
             if room_id not in self.event_cache:
                 self.event_cache[room_id] = []
-            
+
             # Keep last 100 events per room
             self.event_cache[room_id].append(event_data)
             if len(self.event_cache[room_id]) > 100:
                 self.event_cache[room_id] = self.event_cache[room_id][-100:]
-            
+
             # Log the event with details
             log_msg = f"[RELAY] {player_name} rolled {dice_expr} → {total}"
             if intent:
                 log_msg += f" ({intent})"
             logger.info(log_msg)
         elif msg_type == "custom_event":
-            # Custom events are relayed and cached (per updated decision)
+            # Custom events are relayed and cached
             event_data = message.get("event", {})
 
             # Add server-side metadata for easier consumption by clients

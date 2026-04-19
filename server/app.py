@@ -26,6 +26,18 @@ app.add_middleware(
 room_manager = RoomManager()
 ws_handler = WebSocketHandler(room_manager)
 
+from server.auth import create_token, TOKEN_EXPIRE_SECONDS
+
+@app.get("/auth/token")
+async def get_auth_token(room_id: str, name: str):
+    """Issue a short-lived JWT for connecting to a room.
+
+    This endpoint is intentionally minimal for the MVP — in production this should
+    be protected behind proper authentication and authorization.
+    """
+    token = create_token(name, room_id)
+    return {"token": token, "expires_in": TOKEN_EXPIRE_SECONDS}
+
 
 class RoomSummary(BaseModel):
     """Summary of an active room exposed via REST API."""

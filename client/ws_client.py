@@ -41,8 +41,33 @@ class DiceRollerClient:
                 url = f"{protocol}{clean_url}/ws/{room_id}"
                 self.websocket = await websockets.connect(url)
 
-            # Send JOIN message
-            join_msg = {"type": "join", "name": player_name}
+            # Fetch an auth token from the REST endpoint and include it in the JOIN
+            try:
+                if self.server_url.startswith("ws://"):
+                    base = self.server_url.replace("ws://", "http://")
+                elif self.server_url.startswith("wss://"):
+                    base = self.server_url.replace("wss://", "https://")
+                elif self.server_url.startswith("http://") or self.server_url.startswith("https://"):
+                    base = self.server_url
+                else:
+                    base = f"http://{self.server_url}"
+
+                def _fetch_token():
+                    from urllib.request import urlopen
+                    import json as _json
+                    with urlopen(f"{base}/auth/token?room_id={room_id}&name={player_name}", timeout=2) as resp:
+                        return _json.loads(resp.read().decode("utf-8")).get("token")
+
+                token = await asyncio.get_event_loop().run_in_executor(None, _fetch_token)
+                if not token:
+                    logger.error("Failed to obtain auth token from server")
+                    return False
+            except Exception as e:
+                logger.error(f"Failed to fetch auth token: {e}")
+                return False
+
+            # Send JOIN message including token
+            join_msg = {"type": "join", "name": player_name, "token": token}
             await self.websocket.send(json.dumps(join_msg))
 
             self.connected = True
