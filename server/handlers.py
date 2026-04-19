@@ -85,6 +85,14 @@ class WebSocketHandler:
             client_id = self.room_manager.register_client(room_id, websocket)
             logger.info(f"Player '{player_name}' joined room {room_id} (client: {client_id})")
 
+            # Notify other clients in the room that a new player has joined
+            join_notice = {"type": "player_joined", "player_name": player_name, "client_id": client_id}
+            try:
+                await self.room_manager.broadcast_except(room_id, client_id, join_notice)
+            except Exception:
+                # Don't fail the join if notification to others fails
+                logger.debug(f"Failed to notify other clients about join of {client_id}")
+
             # Send cached events to new client (event history)
             cached_events = self.event_cache.get(room_id, [])
             for event_data in cached_events:
@@ -93,7 +101,7 @@ class WebSocketHandler:
             if cached_events:
                 logger.info(f"Sent {len(cached_events)} cached events to client {client_id}")
 
-            # Send JOIN confirmation
+            # Send JOIN confirmation to the joining client
             await websocket.send_json({
                 "type": "player_joined",
                 "player_name": player_name,
