@@ -116,14 +116,13 @@ shared/                 # Shared definitions
 
 - **Domain Layer**: Pure Python business logic with NO external framework imports
   - Validates dice expressions (d20, 2d6+1, 3d8-2)
-  - Manages players and rooms
-  - Maintains append-only event log
-  - Executes all dice rolls on server only
+  - Provides pure models and functions usable by client and server
+  - Keeps domain logic framework-agnostic (no WebSocket/FastAPI imports)
 
 - **Server Layer**: FastAPI + WebSocket transport
   - Accepts WebSocket connections
-  - Validates incoming messages
-  - Delegates logic to domain service
+  - Validates incoming messages (pydantic)
+  - Relays messages and enriches events with metadata; does not perform game logic
   - Broadcasts events to all clients in room
 
 - **Client Layer**: Textual TUI
@@ -163,6 +162,8 @@ All game state changes are represented as immutable events:
 { "type": "roll", "expr": "d20", "intent": "attack" }
 ```
 
+Note: A short-lived JWT token must be obtained from `/auth/token` and included as a query parameter (`?token=<JWT>`) on the WebSocket URL during the handshake. The server verifies the token before accepting the connection.
+
 ### Server → Client
 
 ```json
@@ -173,11 +174,11 @@ All game state changes are represented as immutable events:
 ## MVP Features
 
 - ✅ Multiple rooms (sessions)
-- ✅ Real-time event broadcasting
+- ✅ Real-time event broadcasting (relay)
 - ✅ Dice expression validation
-- ✅ Server-authoritative rolls
-- ✅ Persistent event log during session
-- ✅ Last 50 events sent on reconnect
+- ✅ Client-side dice rolls (clients generate roll events)
+- ✅ Persistent event log during session (in-memory)
+- ✅ Last 100 events sent on reconnect
 - ✅ Command-based TUI interface
 
 ## Future Extensions (Not Implemented)
@@ -192,9 +193,9 @@ All game state changes are represented as immutable events:
 ## Development Notes
 
 - **No Database**: Event log is in-memory for MVP
-- **No Authentication**: Simple player names
-- **Server Authority**: All game logic on server, clients send only intent
-- **Framework-Agnostic Domain**: Domain layer can be swapped to different transport (gRPC, HTTP, etc.)
+- **Authentication**: Short-lived JWT tokens are issued for WS handshake (MVP)
+- **Server role**: Server is a relay only (does not perform game logic); clients are local authority and may generate dice rolls
+- **Framework-Agnostic Domain**: Domain layer can be reused across transports (client or server)
 
 ## Testing
 

@@ -115,13 +115,21 @@ Event payload structure:
 
 ### Setup local virtual environment
 ```bash
-py -3.13 -m venv venv
+python -m venv .venv
 ```
 ### Activate virtual environment
-- Windows: 
-```.\.venv\Scripts\activate```
-- macOS/Linux: 
-```source .venv/bin/activate```
+- Windows (PowerShell):
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+- Windows (cmd.exe):
+```
+.\.venv\Scripts\activate.bat
+```
+- macOS/Linux:
+```bash
+source .venv/bin/activate
+```
 
 
 ### Prerequisites
@@ -215,25 +223,30 @@ Client (Bob):
 ```python
 # handlers.py - NO game logic here
 async def handle_connection(room_id: str, websocket: WebSocket):
+    # Verify the token provided as a query parameter BEFORE accepting the connection
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=1008)
+        return
+    claims = verify_token(token)  # verify_token should raise on invalid token
+
     await websocket.accept()
-    
+
     # GET JOIN MESSAGE
     message = await websocket.receive_json()
     client_id = self.room_manager.register_client(room_id, websocket)
-    
+
     # SEND CACHED EVENTS
     cached = self.event_cache.get(room_id, [])
     for event in cached:
         await websocket.send_json({"type": "event", "event": event})
-    
+
     # RELAY LOOP
     while True:
         message = await websocket.receive_json()
-        
         # Cache if event, then broadcast
         if message.get("type") == "event":
             self.event_cache[room_id].append(message["event"])
-        
         await self.room_manager.broadcast(room_id, message)
 ```
 
@@ -273,7 +286,7 @@ class GameService:
 ## ⚠️ Critical Gotchas
 
 ### WebSocket Connection
-- **ALWAYS call `websocket.accept()`** before sending/receiving
+- Verify authentication token (query param) BEFORE calling `websocket.accept()`. Accept the connection only after token validation succeeds.
 - Register client AFTER accepting
 - If broadcast fails, disconnect that client
 - See `room_manager.py:broadcast()` for error handling pattern
